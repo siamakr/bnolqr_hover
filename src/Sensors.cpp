@@ -70,6 +70,32 @@ void Sensors::init(void)
 }
 
 
+void Sensors::sampleLidar(void)
+{
+
+}
+
+void Sensors::sampleBno(void)
+{
+
+}
+
+void Sensors::runEstimator(void)
+{
+
+}
+
+float Sensors::IIR(float newSample, float prevOutput, float alpha)
+{
+
+}
+
+///////////////// Private Functions Begin /////////////////
+void Sensors::limit(float value, float min, float max)
+{
+
+}
+
 
 void Sensors::rotate_to_world( float * vector ){
 
@@ -91,3 +117,9 @@ void Sensors::rotate_to_world( float * vector ){
     vector[2] = out(2);
 
 }
+
+
+
+
+
+///////////////// Private Functions End /////////////////

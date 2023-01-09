@@ -29,8 +29,8 @@ uint8_t lidar_measurement_response;
 
 #define SENSOR_LIDAR_OFFSET 0.08f
 
-    LIDARLite_v3HP garmin;                       // Garmin v3HP LIDAR object
-    Adafruit_BNO055 bno = Adafruit_BNO055(55, 0x28);  // BNO055 9-axis IMU object 
+LIDARLite_v3HP garmin;                       // Garmin v3HP LIDAR object
+Adafruit_BNO055 bno = Adafruit_BNO055(55, 0x28);  // BNO055 9-axis IMU object 
 
 typedef struct
 {
@@ -80,16 +80,16 @@ public:
 
 
 
-    sensor_data_t data;
-    sensor_data_t pdata;
-    estimator_data_t estimate;
+    sensor_data_t data;             // current data struct
+    sensor_data_t pdata;            // this will be removed (for testing only)
+    estimator_data_t estimate;      // estimate data struct
     sensor_status_t status;
 
 private:
 
     adafruit_bno055_offsets_t bnoOffset;
 
-    void limit(float value, float min, float); 
+    void limit(float value, float min, float max); 
 
     void rotate_to_world( float * vector );
 

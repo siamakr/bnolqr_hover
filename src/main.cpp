@@ -93,10 +93,10 @@
 
 
 using namespace BLA;
-
+float e1, e2, e3; 
 typedef struct
 {
-float roll, pitch, yaw; 
+float roll,r, pitch, yaw; 
 float gx, gy, gz;
 float ax, ay, az;
 float axw, ayw, azw;
@@ -107,14 +107,15 @@ float u1, u2, u3, u4;
 
 typedef struct 
 {
-  float roll, pitch, yaw;
+  float roll,r, pitch, yaw;
   float gx, gy, gz;
   float ax, ay, az; 
   float axw, ayw, azw;
   float x, y, z, zraw; 
   float vx, vy, vzi, vzl, vz;
-  float u1, u2, u3, u4, Tz, Tmag, ang1, ang2; 
-  float e1, e2, e3;
+  float u1, u2, u3, u4, Tz, Tmag, ang1, ang2;
+  float uh1, uh2;
+ // float e1, e2, e3;
 }data_current_t;
 
 typedef struct 
@@ -147,14 +148,14 @@ Matrix<3,6> K = {  0.435003,    0.00000,    0.0000,   0.1521001,    0.0000,    0
 /////////////////////// ATTITUDE ONLY START ///////////////////////
 
 /////////////////////// HOVER ONLY START ///////////////////////
-Matrix<4,1> U_hov = {0,0,0,0}; // Output vector
-Matrix<8,1> error_hov {0,0,0,0,0,0,0,0}; // State error vector
-Matrix<8,1> REF_hov = {0,0,0,0,0,0,0,0}; 
-Matrix<8,1> Xs_hov = {0,0,0,0,0,0,0,0};
-Matrix<4,8> K_hov = {  -0.3164,   -0.0000,    0.0000,   -0.1540,   -0.0000,    0.0000,    0.0000,    0.0000,
-                        0.0000,   -0.3164,    0.0000,   -0.0000,   -0.1540,   -0.0000,    0.0000,    0.0000,
+Matrix<4,1> U_hov = {0.00,0.00,0.00,0.00}; // Output vector
+Matrix<8,1> error_hov {0.00,0.00,0.00,0.00,0.00,0.00,0.00,0}; // State error vector
+Matrix<8,1> REF_hov = {0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00}; 
+Matrix<8,1> Xs_hov = {0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00};
+Matrix<4,8> K_hov = {  -0.4164,   -0.0000,    0.0000,   -0.1440,   -0.0000,    0.0000,    0.0000,    0.0000,
+                        0.0000,   -0.4164,    0.0000,   -0.0000,   -0.1440,   -0.0000,    0.0000,    0.0000,
                        -0.0000,    0.0000,   -0.0316,   -0.0000,    0.0000,   -0.0561,    0.0000,    0.0000,
-                        0.0000,    0.0000,    0.0000,   -0.0000,    0.0000,    0.0000,   26.6288,   12.0942}; 
+                        0.0000,    0.0000,    0.0000,   -0.0000,    0.0000,    0.0000,   9999.6288,   12.0942}; 
 
 /////////////////////// HOVER ONLY START ///////////////////////
 
@@ -300,13 +301,15 @@ void setup(void)
  // Wire.setClock(400000UL); // Set I2C frequency to 400kHz (for Arduino Due)
 
   // Initialize all hardware modules 
-  //init_servos();
+  init_servos();
+  init_edf();
   initBno();
   initLidar();
   
   //init_edf();
   samplebno(); 
   yaw_offset = data.yaw; 
+  REF_hov = {0.00,0.00,0.00, 0.00,0.00,0.00, 0.00,0.00};
 }
 
 
@@ -329,7 +332,7 @@ void loop(void)
   {
     sensor_timer = millis();
     samplebno();
-    sampleLidar();
+    //sampleLidar();
     //float temp_vec_rotated[2];
       
   }
@@ -338,31 +341,31 @@ void loop(void)
     estTime = millis();
     //sampleLidar();
     //delay(0.1);
-   // run_estimator();
+    run_estimator();
   }
 
  // CONTROLLER TIMER
   if(millis() - control_timer >= DT_MSEC)
   {
     control_timer = millis(); 
-   // REF_hov = {0,0,0, 0,0,0, .72f,0};
+    
     //run_kalman_estimator();
-    run_estimator();
+    
     //control_attitude(data.roll, data.pitch, data.yaw, data.gx, data.gy, data.gz);
-    //control_attitude_hov(data.roll, data.pitch, data.yaw, data.gx, data.gy, data.gz, data.z, data.vzi);
+    control_attitude_hov(data.roll, data.pitch, data.yaw, data.gx, data.gy, data.gz, data.z, data.vzi);
   }
 
 
   // RUN THROUGH STEP RESPONSES. 
-  /*
-  if(millis() - mst >= 0000 && millis() - mst <= 5000) REF_hov = {0.00f, d2r(0.00f), 0.00f, 0.00f, 0.00f, 0.00f, 0.72f, 0.00f};
-  if(millis() - mst >= 5000 && millis() - mst <= 8000) REF_hov = {d2r(0.00f), d2r(0.00f), 0.00f, 0.00f, 0.00f, 0.00f, 0.72f, 0.00f};
-  if(millis() - mst >= 8000 && millis() - mst <= 11000) REF_hov = {d2r(0.00f),d2r(0.00f) ,  0.00f, 0.00f, 0.00f, 0.00f, 0.72f, 0.00f};
-  if(millis() - mst >= 11000 && millis() - mst <= 15000) REF_hov = {d2r(0.00f), d2r(0.00f), 0.00f, 0.00f, 0.00f, 0.00f, 0.72f, 0.00f};
+ // /*
+  if(millis() - mst >= 0000 && millis() - mst <= 5000) REF_hov = {0.00f, d2r(0.00f), 0.00f, 0.00f, 0.00f, 0.00f, 0.0f, 0.00f};
+  if(millis() - mst >= 5000 && millis() - mst <= 8000) REF_hov = {d2r(0.00f), d2r(10.00f), 0.00f, 0.00f, 0.00f, 0.00f, 0.0f, 0.00f};
+  if(millis() - mst >= 8000 && millis() - mst <= 11000) REF_hov = {d2r(0.00f),d2r(-10.00f) ,  0.00f, 0.00f, 0.00f, 0.00f, 0.00f, 0.00f};
+  if(millis() - mst >= 11000 && millis() - mst <= 15000) REF_hov = {d2r(0.00f), d2r(10.00f), 0.00f, 0.00f, 0.00f, 0.00f, 0.0f, 0.00f};
 
   //stop testing after 10 seconds to save battery life. 
   if(millis() - mst > 15000) suspend();
-  */
+  //*/
 
  //PRINT/LIDAR TIMER
   if(millis() - tavastime >= 10)
@@ -454,7 +457,7 @@ void init_servos(void)
   sx.attach(XSERVO_PIN);
   sy.attach(YSERVO_PIN);
   rw.attach(RW_PIN);
-  edf.attach(EDF_PIN, 1000, 2000);
+  edf.attach(EDF_PIN, 900, 2200);
   delay(200);
 
   //Zero Servos 
@@ -467,7 +470,7 @@ void init_edf(void)
 {
   //initialize the edf motor and run it at 1500us for 5 seconds to initialize the govenor mode to linearize the throttle curve. 
   edf.writeMicroseconds(EDF_OFF_PWM); 
-  delay(500);
+  delay(1000);
 
   //go to 1500 and wait 5 seconds
   edf.writeMicroseconds(EDF_MIN_PWM);
@@ -534,22 +537,26 @@ void printSerial(void)
   //Serial.print(100*data.vz);
   Serial.print(",  \t");
   
+  Serial.print(r2d(data.uh1));
+  Serial.print(",");
   Serial.print(r2d(U_hov(0)));
   Serial.print(",");
-  // Serial.print(r2d(data.ang1));
-  // Serial.print(",");
-  Serial.print(r2d(U_hov(1)));
-  // Serial.print(",");
-  // Serial.print(r2d(data.ang2));
+   Serial.print(r2d(data.ang1));
+   Serial.print(",");
+  Serial.print(r2d(data.uh2));
+   Serial.print(",");
+   Serial.print(r2d(U_hov(1)));
+  Serial.print(",");
+   Serial.print(r2d(data.ang2));
   Serial.print(",  \t");
   
-  Serial.print(data.e1);
+  Serial.print(r2d(e1));
   Serial.print(",");
-  Serial.print(data.e2);
+  Serial.print(r2d(e2));
   Serial.print(",");
-  Serial.print(data.e3);
+  Serial.print(e3);
   Serial.print(",");
-  Serial.print(U_hov(3));
+  Serial.print(data.u4);
 
  // */
 
@@ -763,16 +770,20 @@ void control_attitude_hov(float r, float p, float y, float gx, float gy, float g
   pdata.u3 = data.u3;
   pdata.u4 = data.u4;
   //load state vecotr 
-  Xs_hov = {r, p, 0, gx, gy, 0, z, vz};
+  data.r = r; 
+  Xs_hov = {r, p, 0, gx, gy, 0, 0, 0};
 
   //run controller 
   error_hov = Xs_hov-REF_hov; 
-  data.e1 = error_hov(0);
-  data.e2 = error_hov(1);
-  data.e3 = error_hov(6);
+  e1 = error_hov(0);
+  e2 = error_hov(1);
+  e3 = error_hov(6);
   U_hov = -K_hov * error_hov; 
   //U_hov(3) += MASS * G; 
   U_hov(3) = MASS * G;
+
+  data.uh1 = U_hov(0);
+  data.uh2 = U_hov(1);
  
 
   //load desired torque vector
@@ -787,9 +798,9 @@ void control_attitude_hov(float r, float p, float y, float gx, float gy, float g
   float Tz{  U_hov(3) * cos(U_hov(1)) * cos(U_hov(0)) };           //constant for now, should be coming from position controller 
   */
 
-  float Tx{ -U_hov(3) * sin(U_hov(0)) }; 
-  float Ty{ -U_hov(3) * sin(U_hov(1)) * cos(U_hov(0)) }; 
-  float Tz{  U_hov(3) * cos(U_hov(1)) * cos(U_hov(0)) };           //constant for now, should be coming from position controller 
+  float Tx{  U_hov(3) * sin(U_hov(0)) }; 
+  float Ty{  U_hov(3) * sin(U_hov(1))   }; 
+  float Tz{  U_hov(3)  };           //constant for now, should be coming from position controller 
 
   float Tm = sqrt(pow(Tx,2) + pow(Ty,2) + pow(Tz,2)); 
   U_hov(3) = Tm; 
@@ -799,7 +810,7 @@ void control_attitude_hov(float r, float p, float y, float gx, float gy, float g
   //pdata.Pitch = asin(Ty/Tmag);
 
   //U_hov(0) = asin(Tx/(Tm));
-  //U_hov(1) = asin(Ty/Tm);
+ // U_hov(1) = asin(Ty/Tm);
 
   //filter servo angles, the more filtering, the bigger the delay 
   U_hov(0) = IIR(U_hov(0), pdata.u1, .05);
@@ -808,7 +819,7 @@ void control_attitude_hov(float r, float p, float y, float gx, float gy, float g
   //limit servo angles to +-15º
   U_hov(0) = limit(U_hov(0), d2r(-15), d2r(15));
   U_hov(1) = limit(U_hov(1), d2r(-15), d2r(15)); 
-  U_hov(3) = limit(U_hov(3), 27.00f, 15.00f);
+  U_hov(3) = limit(U_hov(3), 15.00f, 27.00f);
 
   //write the actuation angles to the servos 
   writeXservo(-r2d(U_hov(0)));

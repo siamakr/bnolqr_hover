@@ -10,6 +10,7 @@
 #include <Adafruit_SPIDevice.h>
 #include <LIDARLite_v3HP.h>
 #include <BasicLinearAlgebra.h>
+//#include "Sensors.h"
 
 
 using namespace BLA;
@@ -89,7 +90,7 @@ private:
 
     adafruit_bno055_offsets_t bnoOffset;
 
-    void limit(float value, float min, float max); 
+    
 
     void rotate_to_world( float * vector );
 

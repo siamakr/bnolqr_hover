@@ -100,6 +100,8 @@ public:
 
     void init();
 
+    void control_attitude_hov(float r, float p, float y, float gx, float gy, float gz, float z, float vz);
+
 
 private:
 
@@ -108,6 +110,10 @@ private:
     void writeYservo(float angle); 
 
     void initEdf(void);
+
+    float limit(float value, float min, float max); 
+
+    float IIR(float newSample, float prevOutput, float alpha);
 
 
 Matrix<4,1> U_hov = {0.00,0.00,0.00,0.00}; // Output vector

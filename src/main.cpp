@@ -63,11 +63,27 @@
 #define SERVO_X_MAX_US 1892
 #define SERVO_Y_MAX_US 1836
 
+// %Linear x axis 
+// %pwmx = 22.33*(angle) + 1527;
+
+// %quadatic x axis 
+// %pwmx = -0.1339*(angle)^2 + 22.12*(angle) + 1537; 
+
+
+// %Linear y axis 
+// %pwmy = 27.12*(angle) + 1487;
+
+// %quadatic y axis 
+// %pwmy = 0.2326*(angle)^2 + 26.95*(angle) + 1471; 
+
 //SERVO-ANGLE TO TVC ANGLE POLYNOMIAL TRANSOFORMATOR 
-#define X_P1 -29.2198405328854f 
-#define X_P2 1453.88991021228f
-#define Y_P1 -20.4054981741083f 
-#define Y_P2 1530.81204806643f
+#define X_P1 -0.1339
+#define X_P2 22.12
+//#define X_P2 -22.12         //real value of the regression test, can be reversed
+#define X_P3 1537
+#define Y_P1 0.2326
+#define Y_P2 26.95
+#define Y_P3 1471
 #define YY_P1 -.204054981741083f 
 #define YY_P2 1530.81204806643f
 
@@ -264,19 +280,13 @@ float d2r(float deg);
 float r2d(float rad);
 void control_attitude(float r, float p, float y, float gx, float gy, float gz);
 void control_attitude_hov(float r, float p, float y, float gx, float gy, float gz, float z, float vz);
-float LPF( float new_sample, float old_sample, float prev_output );
-float averaging(float new_sample, float old_sample);
 void writeXservo(float angle);
 void writeYservo(float angle);
 void init_servos(void);
 void writeEDF(float Ft);
-float ft2omega(float Ft);
-int omega2pwm(float omega);
 void emergency_check(float r, float p);
 void init_edf(void);
-float servoRateLimit(float new_sample, float old_sample);
 float IIR( float newSample, float prevOutput, float alpha);
-float deadband(float new_sample, float old_sample);
 void suspend(void);
 void samplebno(void);
 void initBno(void);
@@ -641,10 +651,6 @@ void samplebno(void){
 
   //error catcher
   if( isnan(euler.z()) || isnan(euler.y()) || isnan(euler.x()) ) Serial.println("bnoerrored"); 
-  //data.yaw -= yaw_offset;
-  // data.roll = euler.z();
-  // data.pitch = euler.y();
-  // data.yaw = euler.x();
 
   //////////GYROSCOPE///////// 
   //load previous gyro data before retreiving the current data
@@ -666,37 +672,6 @@ void samplebno(void){
   data.ax = IIR(accel.x(), pdata.ax, .05);
   data.ay = IIR(accel.y(), pdata.ay, .05);
   data.az = IIR(accel.z(), pdata.az, .05);
-
-
-  //integrate acell vector to get velocity vector in body frame 
-//  pdata.vx = data.vx;
-//  pdata.vy = data.vy;
-//  pdata.vz = data.vz;
-//  //performe both IIR filtering and integration in 1 line.
-//  data.vx = IIR((data.ax - pdata.ax)*DT_SEC, pdata.vx, .0);
-//  data.vy = IIR((data.ay - pdata.ay)*DT_SEC, pdata.vy, .0);
-//  //data.vz = IIR((data.az - pdata.az)*DT_SEC, pdata.vz, .20);
-  
-  // float atemp[2] = {0}; 
-  // atemp[0] = data.ax; 
-  // atemp[1] = data.ay; 
-  // atemp[2] = data.az;
-  // rotate_to_world( atemp ); 
-  // //save previous values to prev struct
-  // pdata.axw = data.axw; 
-  // pdata.ayw = data.ayw;
-  // pdata.azw = data.azw;
-  //load current values in to current_data_t struct
-  // data.axw = atemp[0];
-  // data.ayw = atemp[1];
-  // data.azw = atemp[2];
-
-  //filter and differentiate in one step. 
-  //data.vx = 100 * IIR(DT_SEC * (atemp[0] - pdata.axw), pdata.vx, .25);
-  //data.vy = 100 * IIR(DT_SEC * (atemp[1] - pdata.ayw), pdata.vy, .25);
-  //data.vz = 100 * IIR(DT_SEC * (atemp[2] - pdata.azw), pdata.vz, .25);
-  
-  
 
 }
 
@@ -859,26 +834,16 @@ float limit(float value, float min, float max)
 
 
 //Filters. Testing different ones 
-float LPF( float new_sample, float old_sample, float prev_output )
-{
-  return ( 0.025f * new_sample + 0.025f * old_sample + 0.95f * prev_output );  
-}
-
 float IIR( float newSample, float prevOutput, float alpha)
 {
   return ( (1.0f-alpha)*newSample + alpha * prevOutput);
-}
-
-float averaging(float new_sample, float old_sample)
-{
-  return ((new_sample + old_sample)/2.0f);
 }
 
 //Write to X servo 
 void writeXservo(float angle)
 {
   //map angle in degrees to pwm value for servo 
-  int pwmX{ round( ( angle * X_P1 ) + X_P2 ) }; 
+  int pwmX{round( X_P1 * pow(angle,2) + X_P2 * angle + X_P3 ) }; 
   sx.writeMicroseconds(pwmX); 
 }
 
@@ -886,7 +851,8 @@ void writeXservo(float angle)
 void writeYservo(float angle)
 {
   //map angle in degrees to pwm value for servo 
-  int pwmY{ round( ( angle * Y_P1 ) + Y_P2 ) }; // using polynomial regression coefficients to map tvc angle to pwm vals
+  int pwmY{ round(Y_P1 * pow(angle,2) + Y_P2 * (angle) + Y_P3 ) };      // using polynomial regression coefficients to map tvc angle to pwm vals
+  // int pwmY{ round(Y_P1 * pow(angle,2) - Y_P2 * (angle) + Y_P3 ) };      // true regression equations
   sy.writeMicroseconds(pwmY); 
 }
 
@@ -896,16 +862,6 @@ void writeEDF(float Ft)
   float omega{(Ft - RAD2N_P2)/RAD2N_P1}; 
   int pwm{round(omega * RAD2PWM_P1 + RAD2PWM_P2)}; 
   edf.writeMicroseconds(pwm);
-}
-
-float ft2omega(float Ft)
-{
-  return (Ft - RAD2N_P2)/RAD2N_P1;
-}
-
-int omega2pwm(float omega)
-{
-  return (int) round(omega * RAD2PWM_P1 + RAD2PWM_P2);
 }
 
 // to shut everything down if we go past max set angle 
@@ -920,38 +876,6 @@ void emergency_check(float r, float p)
     Serial.println("Vehicle is in SAFE-MODE... must restart...."); 
     while(1);
   }
-}
-
-
-//This is to limit the speed of actuation.. by calculating how many degrees can the servo
-//actuate with respect to the loop time or DT. I am getting around 3-6degrees per 0.001 second. 
-//servo: 0.1s/60º  or 0.001667s/1º 
-// new_sample, old_sample are in radians. 
-float servoRateLimit(float new_sample, float old_sample)
-{
-  // maxSteps = loop interval / (time/(time/1˚ of actuation))
-  // maxSteps = dt / 0.001667  SERVO_MAX_SEC_PER_DEG = 0.001667
-  // so when we do dt/0.001667 we get the degrees we can actuate 
-  //dt must be in seconds 
-  float maxSteps{(DT_MSEC/1000.00f)/(SERVO_MAX_SEC_PER_RAD/3.00f)};
-  float temp{new_sample};
-
-  if(new_sample >= old_sample + maxSteps) temp = old_sample + maxSteps;
-  if(new_sample <= old_sample - maxSteps) temp = old_sample - maxSteps; 
-
-  return temp; 
-}
-
-//new_sample and prev_sample are in radians 
-float deadband(float new_sample, float old_sample)
-{
-  float db_angle{d2r(0.10f)};      //deadband angle is 0.1 degrees 
-  float temp{0};
-  
-  if(abs(old_sample - new_sample) <= db_angle ) temp = new_sample; 
-  
-  return temp;
-
 }
 
 void suspend(void)
@@ -1190,6 +1114,4 @@ void run_estimator()
   // calculate vzworld from lidar measurement 
   data.vzl = IIR((data.z - pdata.z) / DT_MSEC, pdata.vzl, 0.05); 
   
-  //testing complimentary filter for vzi and vzl 
-  data.vz = LPF(data.vzi, data.vzl, .90);
 }

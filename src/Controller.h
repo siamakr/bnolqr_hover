@@ -50,10 +50,13 @@
 #define SERVO_Y_MAX_US 1836
 
 //SERVO-ANGLE TO TVC ANGLE POLYNOMIAL TRANSOFORMATOR 
-#define X_P1 -29.2198405328854f 
-#define X_P2 1453.88991021228f
-#define Y_P1 -20.4054981741083f 
-#define Y_P2 1530.81204806643f
+#define X_P1 -0.1339
+#define X_P2 22.12
+//#define X_P2 -22.12         //real value of the regression test, can be reversed
+#define X_P3 1537
+#define Y_P1 0.2326
+#define Y_P2 26.95
+#define Y_P3 1471
 
 //EDF MOTOR RPM TO THRUST TO PWM TRANSFORMATORS
 #define RAD2N_P1 0.018566536813619f    //Newtons to radians/s 
@@ -114,6 +117,10 @@ private:
     float limit(float value, float min, float max); 
 
     float IIR(float newSample, float prevOutput, float alpha);
+
+    float r2d(float rad);
+
+    float d2r(float deg); 
 
 
 Matrix<4,1> U_hov = {0.00,0.00,0.00,0.00}; // Output vector

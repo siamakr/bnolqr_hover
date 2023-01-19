@@ -10,22 +10,22 @@ Servo edf;
 
 Controller::Controller()
 {
-    //attach servo pins 
-    sx.attach(XSERVO_PIN);
-    sy.attach(YSERVO_PIN);
-    rw.attach(RW_PIN);
-    edf.attach(EDF_PIN, 900, 2200);
-    delay(200);
+  //attach servo pins 
+  sx.attach(XSERVO_PIN);
+  sy.attach(YSERVO_PIN);
+  rw.attach(RW_PIN);
+  edf.attach(EDF_PIN, 900, 2200);
+  delay(200);
 }
 
 void Controller::init(void)
 {
-    //Zero Servos 
-    writeXservo(0);
-    writeYservo(0);
-    delay(200);
+  //Zero Servos 
+  writeXservo(0);
+  writeYservo(0);
+  delay(200);
 
-    initEdf();              //comment out to not initiate servo startup seq.
+  initEdf();              //comment out to not initiate servo startup seq.
 
 }
 
@@ -61,7 +61,7 @@ void Controller::control_attitude_hov(float r, float p, float y, float gx, float
   */
 
   float Tx{  U_hov(3) * sin(U_hov(0)) }; 
-  float Ty{  U_hov(3) * sin(U_hov(1))   }; 
+  float Ty{  U_hov(3) * sin(U_hov(1)) * cos(U_hov(0))  }; 
   float Tz{  U_hov(3)  };           //constant for now, should be coming from position controller 
 
   float Tm = sqrt(pow(Tx,2) + pow(Ty,2) + pow(Tz,2)); 
@@ -118,7 +118,7 @@ void Controller::initEdf(void)
 void writeXservo(float angle)
 {
   //map angle in degrees to pwm value for servo 
-  int pwmX{ round( ( angle * X_P1 ) + X_P2 ) }; 
+  int pwmX{round( X_P1 * pow(angle,2) + X_P2 * angle + X_P3 ) }; 
   sx.writeMicroseconds(pwmX); 
 }
 
@@ -126,7 +126,8 @@ void writeXservo(float angle)
 void writeYservo(float angle)
 {
   //map angle in degrees to pwm value for servo 
-  int pwmY{ round( ( angle * Y_P1 ) + Y_P2 ) }; // using polynomial regression coefficients to map tvc angle to pwm vals
+  int pwmY{ round(Y_P1 * pow(angle,2) + Y_P2 * (angle) + Y_P3 ) };      // using polynomial regression coefficients to map tvc angle to pwm vals
+  // int pwmY{ round(Y_P1 * pow(angle,2) - Y_P2 * (angle) + Y_P3 ) };      // true regression equations
   sy.writeMicroseconds(pwmY); 
 }
 
@@ -150,12 +151,12 @@ float Controller::IIR( float newSample, float prevOutput, float alpha)
   return ( (1.0f-alpha)*newSample + alpha * prevOutput);
 }
 
-float r2d(float rad)
+float Controller::r2d(float rad)
 {
   return rad * 180.00f / PI;
 }
 
-float d2r(float deg)
+float Controller::d2r(float deg)
 {
   return deg * PI / 180.00f;
 }

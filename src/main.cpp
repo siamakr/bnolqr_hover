@@ -77,13 +77,13 @@
 // %pwmy = 0.2326*(angle)^2 + 26.95*(angle) + 1471; 
 
 //SERVO-ANGLE TO TVC ANGLE POLYNOMIAL TRANSOFORMATOR 
-#define X_P1 -0.1339
-#define X_P2 22.12
+#define Y_P1 -0.1339
+#define Y_P2 22.12
 //#define X_P2 -22.12         //real value of the regression test, can be reversed
-#define X_P3 1537
-#define Y_P1 0.2326
-#define Y_P2 26.95
-#define Y_P3 1471
+#define Y_P3 1537
+#define X_P1 0.2371
+#define X_P2 27.28
+#define X_P3 1441
 #define YY_P1 -.204054981741083f 
 #define YY_P2 1530.81204806643f
 
@@ -123,8 +123,11 @@ float u1, u2, u3, u4;
 
 typedef struct 
 {
-  float roll,r, pitch, yaw;
+  float roll, pitch, yaw;
   float gx, gy, gz;
+  float gxr, gyr, gzr;
+  float gxraw, gyraw, gzraw;
+  float gxi, gyi, gzi;
   float ax, ay, az; 
   float axw, ayw, azw;
   float x, y, z, zraw; 
@@ -140,6 +143,20 @@ typedef struct
   float x, y, z; 
 }data_estimator_t;
 
+//TESTING VARIABLES //
+float int_gain{0.5};
+float n_gain_x{-0.4100};
+float n_gain_y{-0.41000};
+float g_gain_x{-0.1480};
+float g_gain_y{-0.1480};
+float g_alpha{0.00};
+float u_alpha{0.25};
+
+float xsetpoint{0.00f}; 
+float ysetpoint{0.00f};
+float tinterval1{2.50f};
+float tinterval2{1.25f};
+
 /*
 // Temporary IMU vectors, will be replaced with typdef structs
 imu::Vector<3> euler ;
@@ -153,8 +170,8 @@ Matrix<3,1> U = {0,0,0}; // Output vector
 Matrix<6,1> error {0,0,0,0,0,0}; // State error vector
 Matrix<6,1> REF = {0,0,0,0,0,0}; 
 Matrix<6,1> Xs = {0,0,0,0,0,0};
-Matrix<3,6> K = {  0.435003,    0.00000,    0.0000,   0.1521001,    0.0000,    0.0000,
-                  -0.000000,    0.435003,    0.0000,   0.000000,   0.1521001,    0.0000,
+Matrix<3,6> K = {  0.335003,    0.00000,    0.0000,   0.1521001,    0.0000,    0.0000,
+                  -0.000000,    0.335003,    0.0000,   0.000000,   0.1521001,    0.0000,
                    0.000000,   -0.00000,    24.80,   -0.00000,    0.0000,   0.471857}; 
 
                    
@@ -168,8 +185,8 @@ Matrix<4,1> U_hov = {0.00,0.00,0.00,0.00}; // Output vector
 Matrix<8,1> error_hov {0.00,0.00,0.00,0.00,0.00,0.00,0.00,0}; // State error vector
 Matrix<8,1> REF_hov = {0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00}; 
 Matrix<8,1> Xs_hov = {0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00};
-Matrix<4,8> K_hov = {  -0.4164,   -0.0000,    0.0000,   -0.1440,   -0.0000,    0.0000,    0.0000,    0.0000,
-                        0.0000,   -0.4164,    0.0000,   -0.0000,   -0.1440,   -0.0000,    0.0000,    0.0000,
+Matrix<4,8> K_hov = { n_gain_x,   -0.0000,    0.0000,  g_gain_x,   -0.0000,    0.0000,    0.0000,    0.0000,
+                        0.0000,  n_gain_y,    0.0000,   -0.0000,  g_gain_y,   -0.0000,    0.0000,    0.0000,
                        -0.0000,    0.0000,   -0.0316,   -0.0000,    0.0000,   -0.0561,    0.0000,    0.0000,
                         0.0000,    0.0000,    0.0000,   -0.0000,    0.0000,    0.0000,   9999.6288,   12.0942}; 
 
@@ -248,7 +265,7 @@ data_estimator_t estimate;                        // Current Estimator Data Obje
 
 uint8_t sys_status, self_test, sys_err; 
 
-float curr_time, prev_time;
+float curr_time, prev_time, lqr_timer;
 float previousTime, currentTime, elapsedTime;
 float control_timer{0};
 float sensor_timer{0};
@@ -272,14 +289,13 @@ float estTime{0.00f};
 //float p[3] = {0};
 float yaw_offset{0.00f};
 
-
-
 // function definitions (will need to add these to the header file but this is just for initial testing puroses to keep everything in one file)
 float limit(float value, float min, float max);
 float d2r(float deg);
 float r2d(float rad);
 void control_attitude(float r, float p, float y, float gx, float gy, float gz);
 void control_attitude_hov(float r, float p, float y, float gx, float gy, float gz, float z, float vz);
+void control_allocation(void); 
 void writeXservo(float angle);
 void writeYservo(float angle);
 void init_servos(void);
@@ -291,6 +307,7 @@ void suspend(void);
 void samplebno(void);
 void initBno(void);
 void printSerial(void);
+void print_bno(void);
 void initLidar(void);
 void sampleLidar(void);
 uint8_t distanceFast(uint16_t * distance);
@@ -300,6 +317,10 @@ uint8_t distanceContinuous(uint16_t * distance);
 void run_kalman_estimator();
 void run_estimator();
 void calibratebno(adafruit_bno055_offsets_t bnoOffset);
+
+float LPF(float newSample, float prevSample, float alpha);
+float diff(float current_sample, float prev_sample, float dt);
+float integrate(float current_sample, float prev_sample, float dt);
 
 
 
@@ -311,15 +332,35 @@ void setup(void)
  // Wire.setClock(400000UL); // Set I2C frequency to 400kHz (for Arduino Due)
 
   // Initialize all hardware modules 
+
+  //initLidar();
+  delay(100);
   init_servos();
-  init_edf();
+  delay(100);
   initBno();
-  initLidar();
+  delay(100);
   
-  //init_edf();
-  samplebno(); 
+  
+  samplebno();
+  delay(50); 
+   init_edf();
+   delay(500);
   yaw_offset = data.yaw; 
   REF_hov = {0.00,0.00,0.00, 0.00,0.00,0.00, 0.00,0.00};
+
+  Serial.print(n_gain_x, 5);
+  Serial.print(",");
+  Serial.print(g_gain_x, 5);
+  Serial.print(",");
+  Serial.print(n_gain_y, 5);
+  Serial.print(",");
+  Serial.print(g_gain_y, 5);
+  Serial.print(",");
+  Serial.print(g_alpha, 5);
+  Serial.print(",");
+  Serial.print(u_alpha, 5); 
+  Serial.print(",");
+  Serial.println(" , , , , "); 
 }
 
 
@@ -338,20 +379,13 @@ void loop(void)
   //samplebno();
   
   //SENSOR TIMER
-  if(millis() - sensor_timer >= DT_MSEC)
+  if(millis() - sensor_timer >= DT_MSEC/5)
   {
     sensor_timer = millis();
     samplebno();
     //sampleLidar();
     //float temp_vec_rotated[2];
       
-  }
-    if(millis() - estTime >= DT_MSEC)
-  {
-    estTime = millis();
-    //sampleLidar();
-    //delay(0.1);
-    run_estimator();
   }
 
  // CONTROLLER TIMER
@@ -360,22 +394,83 @@ void loop(void)
     control_timer = millis(); 
     
     //run_kalman_estimator();
-    
+    run_estimator();
     //control_attitude(data.roll, data.pitch, data.yaw, data.gx, data.gy, data.gz);
     control_attitude_hov(data.roll, data.pitch, data.yaw, data.gx, data.gy, data.gz, data.z, data.vzi);
   }
 
+  if(millis() - estTime >= DT_MSEC*2)
+  {
+    estTime = millis();
+    control_allocation();
+    
+  }
+
+//  switch (mst){
+//    case millis() - mst <= 1 * tinterval1:
+//      REF_hov(0) = d2r(0.00f);
+//      REF_hov(1) = d2r(0.00f); 
+//      break; 
+//    case millis() - mst <= 2 * tinterval1:
+//      REF_hov(0) = d2r(0.00f);
+//      REF_hov(1) = d2r(-10.00f); 
+//      break; 
+//    case millis() - mst <= 3 * tinterval1:
+//      REF_hov(0) = d2r(0.00f);
+//      REF_hov(1) = d2r(10.00f); 
+//      break; 
+//    case millis() - mst <= 4 * tinterval1:
+//      REF_hov(0) = d2r(10.00f);
+//      REF_hov(1) = d2r(0.00f); 
+//      break; 
+//    case millis() - mst <= 5 * tinterval1:
+//      REF_hov(0) = d2r(-10.00f);
+//      REF_hov(1) = d2r(0.00f); 
+//      break; 
+//    case millis() - mst <= (5 * tinterval1) + 1 * tinterval2:
+//      REF_hov(0) = d2r(0.00f);
+//      REF_hov(1) = d2r(5.00f); 
+//      break; 
+//    case millis() - mst <= (5 * tinterval1) + 2 * tinterval2:
+//      REF_hov(0) = d2r(0.00f);
+//      REF_hov(1) = d2r(-5.00f); 
+//      break; 
+//    case millis() - mst <= (5 * tinterval1) + 3 * tinterval2:
+//      REF_hov(0) = d2r(5.00f);
+//      REF_hov(1) = d2r(0.00f); 
+//      break; 
+//    case millis() - mst <= (5 * tinterval1) + 4 * tinterval2:
+//      REF_hov(0) = d2r(-5.00f);
+//      REF_hov(1) = d2r(0.00f); 
+//      break; 
+//    default:
+//      break; 
+//  }
+//
+//  if(millis() - mst > ( (5 * tinterval) + (4 * tinterval2) ) ) suspend();
+
 
   // RUN THROUGH STEP RESPONSES. 
  // /*
-  if(millis() - mst >= 0000 && millis() - mst <= 5000) REF_hov = {0.00f, d2r(0.00f), 0.00f, 0.00f, 0.00f, 0.00f, 0.0f, 0.00f};
-  if(millis() - mst >= 5000 && millis() - mst <= 8000) REF_hov = {d2r(0.00f), d2r(10.00f), 0.00f, 0.00f, 0.00f, 0.00f, 0.0f, 0.00f};
-  if(millis() - mst >= 8000 && millis() - mst <= 11000) REF_hov = {d2r(0.00f),d2r(-10.00f) ,  0.00f, 0.00f, 0.00f, 0.00f, 0.00f, 0.00f};
-  if(millis() - mst >= 11000 && millis() - mst <= 15000) REF_hov = {d2r(0.00f), d2r(10.00f), 0.00f, 0.00f, 0.00f, 0.00f, 0.0f, 0.00f};
+//  if(millis() - mst >= 0000 && millis() - mst <= 5000) REF_hov = {0.00f, d2r(0.00f), 0.00f, 0.00f, 0.00f, 0.00f, 0.0f, 0.00f};
+//  if(millis() - mst >= 5000 && millis() - mst <= 8000) REF_hov = {d2r(0.00f), d2r(10.00f), 0.00f, 0.00f, 0.00f, 0.00f, 0.0f, 0.00f};
+//  if(millis() - mst >= 8000 && millis() - mst <= 11000) REF_hov = {d2r(0.00f),d2r(-10.00f) ,  0.00f, 0.00f, 0.00f, 0.00f, 0.00f, 0.00f};
+//  if(millis() - mst >= 11000 && millis() - mst <= 15000) REF_hov = {d2r(0.00f), d2r(10.00f), 0.00f, 0.00f, 0.00f, 0.00f, 0.0f, 0.00f};
+// /*
+  if(millis() - mst >= 0000 && millis() - mst <= 3000) REF_hov =    {d2r(0.00f),    d2r(0.00f), 0.00f, 0.00f, 0.00f, 0.00f, 0.0f, 0.00f};
+  if(millis() - mst >= 3000 && millis() - mst <= 5000) REF_hov =    {d2r(-5.00f),  d2r(0.00f), 0.00f, 0.00f, 0.00f, 0.00f, 0.0f, 0.00f};
+  if(millis() - mst >= 5000 && millis() - mst <= 7000) REF_hov =    {d2r(5.00f),   d2r(0.00f) ,  0.00f, 0.00f, 0.00f, 0.00f, 0.00f, 0.00f};
+  if(millis() - mst >= 7000 && millis() - mst <= 9000) REF_hov =    {d2r(0.00f),    d2r(-5.00f), 0.00f, 0.00f, 0.00f, 0.00f, 0.0f, 0.00f};
+  if(millis() - mst >= 9000 && millis() - mst <= 11000) REF_hov =   {d2r(0.00f),    d2r(5.00f), 0.00f, 0.00f, 0.00f, 0.00f, 0.0f, 0.00f};
+  if(millis() - mst >= 11000 && millis() - mst <= 12500) REF_hov =  {d2r(2.00f),    d2r(0.00f), 0.00f, 0.00f, 0.00f, 0.00f, 0.0f, 0.00f};
+  if(millis() - mst >= 12500 && millis() - mst <= 14000) REF_hov =  {d2r(-2.00f),   d2r(0.00f), 0.00f, 0.00f, 0.00f, 0.00f, 0.0f, 0.00f};
+  if(millis() - mst >= 14000 && millis() - mst <= 15500) REF_hov =  {d2r(0.00f),    d2r(2.00f), 0.00f, 0.00f, 0.00f, 0.00f, 0.0f, 0.00f};
+  if(millis() - mst >= 15500 && millis() - mst <= 17000) REF_hov =  {d2r(0.00f),    d2r(-2.00f), 0.00f, 0.00f, 0.00f, 0.00f, 0.0f, 0.00f};
 
   //stop testing after 10 seconds to save battery life. 
-  if(millis() - mst > 15000) suspend();
-  //*/
+  if(millis() - mst > 14000) suspend();
+//  */
+
 
  //PRINT/LIDAR TIMER
   if(millis() - tavastime >= 10)
@@ -384,7 +479,7 @@ void loop(void)
     //sampleLidar();
     printSerial();
   }
-
+emergency_check(data.roll, data.pitch);
 }
 
 void printLoopTime(void)
@@ -399,30 +494,48 @@ void printLoopTime(void)
 
 void initBno(void)
 {
-  Serial.println("Orientation Sensor Test"); Serial.println("");
+ // Serial.println("Orientation Sensor Test"); Serial.println("");
   bno.begin(OPERATION_MODE_NDOF);
   bno.setExtCrystalUse(false);
 
   //Load the experimentally gathered calibration values into the offset struct
   adafruit_bno055_offsets_t bnoOffset;
+   /*
+  ////////////////BNO onboard Hopper//////////////
+  //acceleration 
+  bnoOffset.accel_offset_x = -47;
+  bnoOffset.accel_offset_y = 67;
+  bnoOffset.accel_offset_z = -38;
+  //mag 
+  bnoOffset.mag_offset_x = 3676;
+  bnoOffset.mag_offset_y = -1694;
+  bnoOffset.mag_offset_z = 1019;
+  //gyro
+  bnoOffset.gyro_offset_x = 0;
+  bnoOffset.gyro_offset_y = -1;
+  bnoOffset.gyro_offset_z = -4;
+  //radii
+  bnoOffset.accel_radius = 1000;
+  bnoOffset.mag_radius = 821;
+  */
  // /*
   ////////////////BNO onboard Hopper//////////////
   //acceleration 
-  bnoOffset.accel_offset_x = -20;
-  bnoOffset.accel_offset_y = -170;
-  bnoOffset.accel_offset_z = -25;
+  bnoOffset.accel_offset_x = -64;
+  bnoOffset.accel_offset_y = -374;
+  bnoOffset.accel_offset_z = 38;
   //mag 
-  bnoOffset.mag_offset_x = 6435;
-  bnoOffset.mag_offset_y = -2156;
-  bnoOffset.mag_offset_z = 726;
+  bnoOffset.mag_offset_x = 1163;
+  bnoOffset.mag_offset_y = 237;
+  bnoOffset.mag_offset_z = -2651;
   //gyro
-  bnoOffset.gyro_offset_x = -4;
-  bnoOffset.gyro_offset_y = 0;
-  bnoOffset.gyro_offset_z = -1;
+  bnoOffset.gyro_offset_x = -9;
+  bnoOffset.gyro_offset_y = -3;
+  bnoOffset.gyro_offset_z = 1;
   //radii
   bnoOffset.accel_radius = 1000;
-  bnoOffset.mag_radius = 806;
-//  */
+  bnoOffset.mag_radius = 832;
+ // */
 ////////////////BNO onboard Hopper//////////////
 
 /*
@@ -454,11 +567,11 @@ void initBno(void)
     //while (1);
   }
   //Run the calibration loop to attain offsets 
-  //calibratebno(bnoOffset);            //Comment this out if you have experimental values. 
+//  calibratebno(bnoOffset);            //Comment this out if you have experimental values. 
   //Load offset type to BNO registers 
   bno.setSensorOffsets(bnoOffset); 
   //bno.setSensorOffsets(calibratebno());             //This will use the new calib function in setup() 
-  delay(500);
+  delay(30);
 }
 
 void init_servos(void)
@@ -467,37 +580,32 @@ void init_servos(void)
   sx.attach(XSERVO_PIN);
   sy.attach(YSERVO_PIN);
   rw.attach(RW_PIN);
-  edf.attach(EDF_PIN, 900, 2200);
+  edf.attach(EDF_PIN);
   delay(200);
 
   //Zero Servos 
   writeXservo(0);
   writeYservo(0);
-  delay(200);
+  edf.writeMicroseconds(EDF_OFF_PWM); 
+  delay(1000);
 }
 
 void init_edf(void)
 {
   //initialize the edf motor and run it at 1500us for 5 seconds to initialize the govenor mode to linearize the throttle curve. 
-  edf.writeMicroseconds(EDF_OFF_PWM); 
-  delay(1000);
+//  edf.writeMicroseconds(EDF_OFF_PWM); 
+//  delay(1000);
 
   //go to 1500 and wait 5 seconds
-  edf.writeMicroseconds(EDF_MIN_PWM);
+  edf.writeMicroseconds(EDF_MIN_PWM+30);
   delay(5000);
 }
 
 void printSerial(void)
 {
-  /*
-  //Serial.print("r: ");
-  Serial.print(r2d(data.roll));
-  Serial.print(",");  
-  Serial.print(r2d(data.pitch));
-  Serial.print(",");
-  Serial.print(r2d(data.yaw));
-  Serial.print(",  \t");
 
+
+/*
 
   Serial.print(data.vx);
   Serial.print(",");
@@ -528,63 +636,84 @@ void printSerial(void)
   Serial.print(",\t");
   Serial.print(data.zraw);
   Serial.print("");
-  */
 
- // /*
-  Serial.print(r2d(data.roll));
+*/
+ 
+  Serial.print(r2d(data.roll), 5);
   Serial.print(",");  
-  Serial.print(r2d(data.pitch));
+  Serial.print(r2d(data.pitch), 5);
   Serial.print(",");
-  Serial.print(r2d(data.yaw));
-  Serial.print(",  \t");
+//  Serial.print(r2d(data.yaw));
+//  Serial.print(",");
+  Serial.print(r2d(REF_hov(0)), 2);
+  Serial.print(",");
+  Serial.print(r2d(REF_hov(1)), 2);
+  Serial.print(",");  
+  Serial.print(r2d(data.gx), 5);
+  Serial.print(",");  
+  Serial.print(r2d(data.gy), 5);
+  Serial.print(",");
   
-  Serial.print(data.z);
-  Serial.print(",");
-  //Serial.print(data.vzl);
-  //Serial.print(",");
-  Serial.print(data.vzi);
-  //Serial.print(",");
-  //Serial.print(100*data.vz);
-  Serial.print(",  \t");
+//  Serial.print(data.z, 5);
+//  Serial.print(",");
+//  Serial.print(data.vzl, 5);
+//  Serial.print(",");
+//  Serial.print(data.vzi, 5);
+//  Serial.print(",");
+//  Serial.print(100*data.vz, 5);
+//  Serial.print(",  \t");
   
-  Serial.print(r2d(data.uh1));
-  Serial.print(",");
-  Serial.print(r2d(U_hov(0)));
-  Serial.print(",");
-   Serial.print(r2d(data.ang1));
-   Serial.print(",");
-  Serial.print(r2d(data.uh2));
-   Serial.print(",");
-   Serial.print(r2d(U_hov(1)));
-  Serial.print(",");
-   Serial.print(r2d(data.ang2));
-  Serial.print(",  \t");
-  
-  Serial.print(r2d(e1));
-  Serial.print(",");
-  Serial.print(r2d(e2));
-  Serial.print(",");
-  Serial.print(e3);
-  Serial.print(",");
-  Serial.print(data.u4);
 
- // */
+  Serial.print(r2d(U_hov(0)), 5);
+  Serial.print(",");
+  Serial.print(r2d(U_hov(1)), 5);
+  Serial.print(",");
 
-  // Serial.print(",       ");
-  // Serial.print((double) estimate.vx);
-  // Serial.print(",");
-  // Serial.print((double) estimate.vy);
-  // Serial.print(",");
-  // Serial.print((double) estimate.vz);
+  Serial.print(r2d(data.ang1), 5);
+  Serial.print(",");
+  Serial.print(r2d(data.ang2), 5);
+  Serial.print(",");
+  
+  Serial.print(r2d(error_hov(0)), 5);
+  Serial.print(",");
+  Serial.print(r2d(error_hov(1)), 5);
+  Serial.print(",");
+//  Serial.print(e3, 5);
+//  Serial.print(",");
+  Serial.print(data.u4, 5);
+
   Serial.println("");
-  // Serial.print(r2d(U(1)));
-  // Serial.print(",");
-  // Serial.print(r2d(pdata.Roll));
-  // Serial.print(",");
-  // Serial.print(r2d(pdata.Pitch));
-  // Serial.println(",");
+
+
   
-  //Serial.print("\t");
+}
+
+void print_bno(void)
+{
+  //  
+//  Serial.print("r: ");
+//  Serial.print(r2d(euler.z()));
+//  Serial.print(",\t");
+//  Serial.print("gx: ");
+//  Serial.print(gyro.x(), 5);
+//  Serial.print(",\t"); 
+
+
+//  
+//  Serial.print("p: ");
+//  Serial.print(r2d(euler.y()));
+//  Serial.print(",\t");
+//  Serial.print("gy: ");
+//  Serial.print(gyro.y(), 5);
+//  Serial.print(",\t"); 
+//  
+//  Serial.print("y: ");
+//  Serial.print(r2d(euler.z()));
+//  Serial.print(",\t");  
+//  Serial.print("gz: ");
+//  Serial.print(r2d(euler.z()), 5);
+//  
+//  Serial.println("");  
 }
 
 void calibratebno(adafruit_bno055_offsets_t offsetType)
@@ -593,7 +722,7 @@ void calibratebno(adafruit_bno055_offsets_t offsetType)
   uint8_t syst, Gyro, accel, mag = 0;
   //adafruit_bno055_offsets_t bnoO;
   bool done_flag = false;
-  uint8_t count{1};         //The number of times you want to achieve 3,3,3,3 calib status
+  uint8_t count{2};         //The number of times you want to achieve 3,3,3,3 calib status
 
   while(done_flag == false)
   {
@@ -634,6 +763,15 @@ void calibratebno(adafruit_bno055_offsets_t offsetType)
 //This function samples the BNO055 and calculates the Euler angles and 
 //gyro values, filtered, and magnetometer values for yaw/heading 
 void samplebno(void){
+
+  //save previous time-step values: 
+  float rollp{data.roll};
+  float pitchp{data.pitch};
+  float yawp{data.yaw};
+
+  float gxp{data.gx};
+  float gyp{data.gy};
+  float gzp{data.gz};
   
   /////////EULER ANGLE////////// 
   pdata.roll = data.roll; 
@@ -654,15 +792,17 @@ void samplebno(void){
 
   //////////GYROSCOPE///////// 
   //load previous gyro data before retreiving the current data
-  pdata.gx = data.gx; 
-  pdata.gy = data.gy; 
-  pdata.gz = data.gz;
+
   //read gyro values from bno
   imu::Vector<3> gyro = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
+  data.gxraw = d2r(gyro.x()); 
+  data.gyraw = d2r(gyro.y()); 
+  data.gzraw = d2r(gyro.z());
+
   //load temp vecotor to IIR filter the gyro values 
-  data.gx = IIR(d2r(gyro.x()), pdata.gx, 0.10);
-  data.gy = IIR(d2r(gyro.y()), pdata.gy, 0.10); 
-  data.gz = IIR(d2r(gyro.z()), pdata.gz, 0.55);
+  data.gx = IIR(d2r(gyro.x()), gxp, g_alpha);
+  data.gy = IIR(d2r(gyro.y()), gyp, g_alpha); 
+  data.gz = IIR(d2r(gyro.z()), gzp, g_alpha);
 
   //////////ACCELERATION/////////
   pdata.ax = data.ax; 
@@ -673,133 +813,69 @@ void samplebno(void){
   data.ay = IIR(accel.y(), pdata.ay, .05);
   data.az = IIR(accel.z(), pdata.az, .05);
 
+//  
+ 
+
 }
 
 void control_attitude(float r, float p, float y, float gx, float gy, float gz)
 {
-  //load state vecotr 
-  Xs = {r, p, 1.00f, gx, gy, 0};
 
-  //run controller 
-  error = Xs-REF; 
-  U = -K * error; 
-
-  //load desired torque vector
-  //  float tx = U(2)*sin(U(0))*COM_TO_TVC;
-  //  float ty = U(2)*sin(U(1))*COM_TO_TVC;
-  //  float tz = U(2);
-
-  //load new Thrust Vector from desired torque
-  float Tx{-U(3)*sin(U(0))}; 
-  float Ty{-U(3)*sin(U(1)*cos(U(0)))}; 
-  float Tz{U(3)*cos(U(1))*cos(U(0))};           //constant for now, should be coming from position controller 
-
-  float Tm = sqrt(pow(Tx,2) + pow(Ty,2) + pow(Tz,2)); 
-  
-  //different way to deduce servo angles from body forces (got this from a paper I can send you)
-  //pdata.Roll = asin(-Tx/(Tmag - pow(Ty,2)));
-  //pdata.Pitch = asin(Ty/Tmag);
-
-  //U(0) = asin(Tx/(Tm));
-  //U(1) = asin(Ty/Tm);
-
-  // float u1temp = averaging(U(1), prev(4));
-  // float u2temp = averaging(U(2), prev(5));
-
-  //deadband 
-  //U(0) = deadband(U(0), pdata.u1);
-  //U(1) = deadband(U(1), pdata.u2);
-
-  //limit the speed of servos
-  //TODO: test the change made to the maxStep value 
-  //      given the correction to the servo angle to TVC angle 
-  //U(0) = servoRateLimit(U(0), pdata.u1);
-  //U(1) = servoRateLimit(U(1), pdata.u2);
-
-  //filter servo angles, the more filtering, the bigger the delay 
-  U(0) = IIR(U(0), pdata.u1, .05);
-  U(1) = IIR(U(1), pdata.u2, .05); 
-
-  //limit servo angles to +-15º
-  U(0) = limit(U(0), d2r(-15), d2r(15));
-  U(1) = limit(U(1), d2r(-15), d2r(15)); 
-
-  //write the actuation angles to the servos 
-  writeXservo(r2d(U(0)));
-  writeYservo(r2d(U(1)));
-  //Write the thrust value (N) to the EDF motor
-  //writeEDF();
-
-  //load previous data struct for filtering etc. 
-
-  pdata.u1 = U(0);
-  pdata.u2 = U(1);
-  pdata.u3 = U(2);
 }
 
 void control_attitude_hov(float r, float p, float y, float gx, float gy, float gz, float z, float vz)
 {
+  
+  float dt = (millis() - lqr_timer) / 1000;
+  lqr_timer = millis();
   // load prev struct with prev values 
-  pdata.u1 = data.u1;
-  pdata.u2 = data.u2;
-  pdata.u3 = data.u3;
-  pdata.u4 = data.u4;
+  float pdata1 = data.u1;
+  float pdata2 = data.u2;
+
+  float e_roll_prev{error_hov(0)};
+  float e_pitch_prev{error_hov(1)};
+
   //load state vecotr 
-  data.r = r; 
   Xs_hov = {r, p, 0, gx, gy, 0, 0, 0};
 
   //run controller 
   error_hov = Xs_hov-REF_hov; 
-  e1 = error_hov(0);
-  e2 = error_hov(1);
-  e3 = error_hov(6);
   U_hov = -K_hov * error_hov; 
   //U_hov(3) += MASS * G; 
   U_hov(3) = MASS * G;
 
-  data.uh1 = U_hov(0);
-  data.uh2 = U_hov(1);
- 
+  //calculate integral terms if within bounds 
+  U_hov(0) += (error_hov(0) <= d2r(3) || error_hov(0) >= d2r(-3)) ? int_gain * ((e_roll_prev - error_hov(0)) * dt) : 0.00f; 
+  U_hov(1) += (error_hov(1) <= d2r(3) || error_hov(1) >= d2r(-3)) ? int_gain * ((e_pitch_prev - error_hov(1)) * dt) : 0.00f; 
 
-  //load desired torque vector
-  //  float tx = U(2)*sin(U(0))*COM_TO_TVC;
-  //  float ty = U(2)*sin(U(1))*COM_TO_TVC;
-  //  float tz = U(2);
-
-  /*
+  
   //load new Thrust Vector from desired torque
   float Tx{ -U_hov(3) * sin(U_hov(0)) }; 
   float Ty{ -U_hov(3) * sin(U_hov(1)) * cos(U_hov(0)) }; 
   float Tz{  U_hov(3) * cos(U_hov(1)) * cos(U_hov(0)) };           //constant for now, should be coming from position controller 
-  */
-
-  float Tx{  U_hov(3) * sin(U_hov(0)) }; 
-  float Ty{  U_hov(3) * sin(U_hov(1))   }; 
-  float Tz{  U_hov(3)  };           //constant for now, should be coming from position controller 
+  
 
   float Tm = sqrt(pow(Tx,2) + pow(Ty,2) + pow(Tz,2)); 
   U_hov(3) = Tm; 
   
-  //different way to deduce servo angles from body forces (got this from a paper I can send you)
-  //pdata.Roll = asin(-Tx/(Tmag - pow(Ty,2)));
-  //pdata.Pitch = asin(Ty/Tmag);
-
-  //U_hov(0) = asin(Tx/(Tm));
+ // U_hov(0) = asin(Tx/(Tm- pow(Ty,2)));
  // U_hov(1) = asin(Ty/Tm);
 
+ // U_hov(1) = U_hov(1) * cos(U_hov(0));
+
   //filter servo angles, the more filtering, the bigger the delay 
-  U_hov(0) = IIR(U_hov(0), pdata.u1, .05);
-  U_hov(1) = IIR(U_hov(1), pdata.u2, .05); 
+  U_hov(0) = IIR(U_hov(0), pdata1, u_alpha);
+  U_hov(1) = IIR(U_hov(1), pdata2, u_alpha); 
 
   //limit servo angles to +-15º
   U_hov(0) = limit(U_hov(0), d2r(-15), d2r(15));
   U_hov(1) = limit(U_hov(1), d2r(-15), d2r(15)); 
   U_hov(3) = limit(U_hov(3), 15.00f, 27.00f);
 
-  //write the actuation angles to the servos 
-  writeXservo(-r2d(U_hov(0)));
-  writeYservo(-r2d(U_hov(1)));
-  writeEDF(U_hov(3));
+  // //write the actuation angles to the servos 
+  // writeXservo(-r2d(U_hov(0)));
+  // writeYservo(-r2d(U_hov(1)));
+  // writeEDF(U_hov(3));
 
   
   //load previous data struct for filtering etc. 
@@ -809,8 +885,16 @@ void control_attitude_hov(float r, float p, float y, float gx, float gy, float g
   data.u4 = U_hov(3);
   data.Tz = Tz; 
   data.Tmag = Tm; 
-  data.ang1 = asin(Tx/Tm); 
+  data.ang1 = asin(Tx/(Tm - pow(Ty,2))); 
   data.ang2 = asin(Ty/Tm);
+}
+
+void control_allocation(void) 
+{
+    //write the actuation angles to the servos 
+  writeXservo(-r2d(U_hov(0)));
+  writeYservo(-r2d(U_hov(1)));
+  writeEDF(U_hov(3));
 }
 
 float r2d(float rad)
@@ -838,6 +922,23 @@ float IIR( float newSample, float prevOutput, float alpha)
 {
   return ( (1.0f-alpha)*newSample + alpha * prevOutput);
 }
+
+float LPF( float newSample, float prevSample, float alpha)
+{
+  return ( (alpha)*newSample + (1.0f-alpha) * prevSample);
+}
+
+float diff(float current_sample, float prev_sample, float dt)
+{
+  return (current_sample - prev_sample) / dt; 
+}
+
+float integrate(float current_sample, float prev_sample, float dt)
+{
+  return (current_sample - prev_sample) * dt; 
+}
+
+
 
 //Write to X servo 
 void writeXservo(float angle)
@@ -881,12 +982,13 @@ void emergency_check(float r, float p)
 void suspend(void)
 {
   //turn off EDF motor
-  writeEDF(0); 
+  writeEDF(900); 
   //zero TVC actuators.
   writeXservo(0);
   writeYservo(0);
   //Serial.println("Max attitude angle reached....  "); 
   //Serial.println("Vehicle is in SAFE-MODE... must restart...."); 
+
   while(1);
 
 }

@@ -17,7 +17,7 @@ using namespace BLA;
 
 //lidar stuff
 uint8_t garmin_address{0x62};
-uint16_t distance;
+//uint16_t distance;
 uint8_t lidar_measurement_response;
 
 #define STATUS_READY 0x01
@@ -71,7 +71,7 @@ public:
 
     void calibratebno(adafruit_bno055_offsets_t bnoOffset);
 
-    float IIR( float newSample, float prevOutput, float alpha);
+    
 
     void sampleBno(void);
 
@@ -90,7 +90,7 @@ private:
 
     adafruit_bno055_offsets_t bnoOffset;
 
-    
+    float IIR( float newSample, float prevOutput, float alpha);
 
     void rotate_to_world( float * vector );
 
